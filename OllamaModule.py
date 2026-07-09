@@ -35,7 +35,6 @@ class OllamaModule:
 
     def run_tool(self, name: str, args: dict):
         if name == "end_chat":
-            print("shutting down")
             self.orchestrator.end_event.set()
             return "succesful"
 
@@ -49,7 +48,7 @@ class OllamaModule:
             "content": transcript
         })
         
-        print("transcript received")
+        print("Ollama: transcript received. processing...")
         
         #loops until model is finished calling tools
         while True:
@@ -107,4 +106,4 @@ class OllamaModule:
             if m["role"] == "assistant" and not m.get("tool_calls"):
                 final_text = (m.get("content") or "").strip()
                 break
-        self.tts_queue.put(final_text)       
+        return final_text

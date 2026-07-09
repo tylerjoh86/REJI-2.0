@@ -12,6 +12,9 @@ class PiperTTSModule:
         self.voice = PiperVoice.load(self.MODEL_PATH)
 
     def load_audio(self, utterance):
-        for audio_bytes in self.voice.synthesize_stream_raw(utterance):
-            audio_chunk = np.frombuffer(audio_bytes, dtype=np.int16)
-            self.audio_queue.put(audio_chunk)
+        if not utterance is None:
+            for audio_bytes in self.voice.synthesize_stream_raw(utterance):
+                audio_chunk = np.frombuffer(audio_bytes, dtype=np.int16)
+                self.audio_queue.put(audio_chunk)
+        else:
+            self.audio_queue.put(None)
