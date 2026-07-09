@@ -3,6 +3,7 @@ from ollama import chat
 from ollama import ChatResponse
 import json
 import uuid
+import re
 
 TOOLS = [
     {
@@ -26,12 +27,17 @@ class OllamaModule:
         self.session = requests.Session()
         self.tts_queue = self.orchestrator.tts_queue
 
-        self.history = []
+        self.history = [
+            {
+                "role": "system",
+                "content": (
+                    "You are JARVIS, an AI voice assistant. Strictly talk in Text to speech compatible format. "
+                    "You are loosely based off of Reginald Jeeves."
+                )
+            }
+        ]
 
-        self.history.append({
-            "role": "system",
-            "content": "You are JARVIS, an AI voice assistant. Strictly talk in Text to speech compatible format. You are loosely based off of Reginald Jeeves"
-        })
+        self.tts_buffer = ""
 
     def run_tool(self, name: str, args: dict):
         if name == "end_chat":
@@ -39,6 +45,36 @@ class OllamaModule:
             return "succesful"
 
         raise ValueError(f"unknown fuction: {name}")
+    
+    def _stream_to_tts(self, tokens: str):
+        """
+        Appends incoming tokens to a buffer and pushes complete chunks
+        to the TTS queue as soon as safe boundaries appear.
+        """
+        if not tokens or not tokens.strip():
+            return
+
+        self.tts_buffer += tokens
+
+        # Split on sentence-ending punctuation with space after
+        parts = re.split(r'(?<=[.!?;])\s+', self.tts_buffer)
+
+        if len(parts) == 1:
+            # No complete boundary yet; keep buffering unless it gets long
+            if len(self.tts_buffer.strip()) > 300:
+                self.tts_queue.put(self.tts_buffer.strip())
+                self.tts_buffer = ""
+            return
+
+        # All but last are likely complete utterances
+        complete_parts = parts[:-1]
+        remainder = parts[-1].strip()
+
+        for p in complete_parts:
+            if p.strip():
+                self.tts_queue.put(p.strip())
+
+        self.tts_buffer = remainder
           
    
     def process_response(self, transcript):
@@ -48,38 +84,53 @@ class OllamaModule:
             "content": transcript
         })
         
-        print("Ollama: transcript received. processing...")
+        print("Ollama: transcript received. streaming response...")
+
+        final_text = ""
         
         #loops until model is finished calling tools
         while True:
-            response: ChatResponse = chat(
+            turn_content = ""
+            tool_calls_in_turn = []
+
+            response = chat(
                 model='qwen3.6-27b-unlocked',
                 messages=self.history,
                 tools=TOOLS,
-                stream=False,
-                options={
-                    "thinking": False
-                }
+                stream=True,
+                options={"thinking": False}
             )
+            for chunk in response:
+                msg = chunk.message
 
-            message = response.message
+                # Stream text content to TTS buffer immediately
+                if msg.content:
+                    turn_content += msg.content
+                    self._stream_to_tts(msg.content)
+
+                # Collect tool calls from this turn
+                if msg.tool_calls:
+                    for tc in msg.tool_calls:
+                        tool_calls_in_turn.append(tc)
             
             #prints REJI's response
-            print("REJI: " + message.content)
+            print("REJI: " + turn_content)
             
             assistant_message = {
                 "role": "assistant",
-                "content": message.content or ""
+                "content": turn_content or ""
             }
-            if message.tool_calls:
-                assistant_message["tool_calls"] = message.tool_calls
+            if tool_calls_in_turn:
+                assistant_message["tool_calls"] = tool_calls_in_turn
 
             self.history.append(assistant_message)
+
+            final_text += turn_content
             
-            if not message.tool_calls:
+            if not tool_calls_in_turn:
                 break
 
-            for i, tool_call in enumerate(message.tool_calls):
+            for i, tool_call in enumerate(tool_calls_in_turn):
                 func_name = tool_call["function"]["name"]
                 args_raw = tool_call["function"].get("arguments", {})
                 call_id = tool_call.get("id") or f"call_{i}_{uuid.uuid4().hex[:8]}"
@@ -100,10 +151,8 @@ class OllamaModule:
                     "content": str(result)
                 })
 
-        print("sending response to TTS...")
+        if self.tts_buffer.strip():
+            self.tts_queue.put(self.tts_buffer.strip())
+            self.tts_buffer = ""
 
-        for m in reversed(self.history):
-            if m["role"] == "assistant" and not m.get("tool_calls"):
-                final_text = (m.get("content") or "").strip()
-                break
-        return final_text
+        print("Ollama: streaming complete.")

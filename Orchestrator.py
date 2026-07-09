@@ -11,6 +11,7 @@ import FasterWhiperModule
 import time
 from enum import Enum
 import time
+from pynput import keyboard
 
 SILENCE_TIMEOUT = 1.2
 RESPONSE_WINDOW = 5.0
@@ -25,37 +26,40 @@ class State(Enum):
 
 class orchestrator:
     def __init__(self):
-        self.tts_queue = queue.Queue()
-        self.audio_queue = queue.Queue()
+        #queues
+        self.tts_queue     = queue.Queue()
+        self.audio_queue   = queue.Queue()
+        
+        #threading events
+        self.end_event              = threading.Event()
+        self.audio_finished_event   = threading.Event()
 
-        self.tts = PiperTTSModule.PiperTTSModule(self.audio_queue)
-        self.audioInput = InputModule.InputModule(self)
-        self.llm = OllamaModule.OllamaModule(self)
-        self.ww_engine = WakeWordModule.WakeWordModule()
-        self.vad = SeleroVADModule.SeleroVADModule()
-        self.stt = FasterWhiperModule.FasterWhisperModule()
+        #modules
+        self.tts           = PiperTTSModule.PiperTTSModule(self.audio_queue)
+        self.audioInput    = InputModule.InputModule(self)
+        self.llm           = OllamaModule.OllamaModule(self)
+        self.ww_engine     = WakeWordModule.WakeWordModule()
+        self.vad           = SeleroVADModule.SeleroVADModule()
+        self.stt           = FasterWhiperModule.FasterWhisperModule()
 
         self.state = State.LISTENING
         self.last_speech_time = None
         self.audio_buffer = []
+        self.saved_chunk = None
 
-        self.end_event = threading.Event()
-        self.audio_finished_event = threading.Event()
         
    
     def start(self):
-        tts_t = threading.Thread(target=self.tts_feeder, daemon=True)
-        output_t = threading.Thread(target=self.speaker_loop, daemon=True)
-        control_t = threading.Thread(target=self.control_loop, daemon=False)
-        #audio_input_t = threading.Thread(target=self.audioInput.control_loop, daemon=False)
-        #text_input_t = threading.Thread(target=self.input_loop, daemon=False)
+        tts_t           = threading.Thread(target=self.tts_feeder, daemon=True)
+        output_t        = threading.Thread(target=self.speaker_loop, daemon=True)
+        control_t       = threading.Thread(target=self.control_loop, daemon=False)
+        #text_input_t   = threading.Thread(target=self.input_loop, daemon=False)
 
         tts_t.start()
         output_t.start()      
         self.audioInput.start()
         control_t.start()
 
-        #audio_input_t.start()
         #text_input_t.start()
 
         print(f"Listening for wakeword {self.ww_engine.WAKE_WORD}...")
@@ -67,7 +71,7 @@ class orchestrator:
             if self.end_event.is_set():
                 self.state = State.SHUTTING_DOWN
 
-            if self.state is State.LISTENING:
+            if self.state == State.LISTENING:
                 audioChunk = self.audioInput.raw_queue.get()
                 if self.ww_engine.is_wake_word(audioChunk):
                     self.state = State.WAITING
@@ -75,18 +79,19 @@ class orchestrator:
                     print("state = waiting")
 
 
-            elif self.state is State.WAITING:
+            elif self.state == State.WAITING:
                 audioChunk = self.audioInput.raw_queue.get()
                 if self.vad.is_speech(audioChunk):
                     self.state = State.RECORDING
+                    self.audio_buffer.append(audioChunk)
                     print("state = recording")
 
                 elif (time.time() - self.last_speech_time) > RESPONSE_WINDOW:
-                    self.state - State.SHUTTING_DOWN
+                    self.state = State.SHUTTING_DOWN
                     print("state = shutting down")
 
 
-            elif self.state is State.RECORDING:
+            elif self.state == State.RECORDING:
                 audioChunk = self.audioInput.raw_queue.get()
                 self.audio_buffer.append(audioChunk)
                 if self.vad.is_speech(audioChunk):
@@ -97,7 +102,7 @@ class orchestrator:
                     self.audioInput.pause()
                 
             
-            elif self.state is State.TRANSCRIBING:
+            elif self.state == State.TRANSCRIBING:
                 transcription = self.stt.transcribe(self.audio_buffer)
                 self.audio_buffer = []
                 
@@ -131,6 +136,8 @@ class orchestrator:
                 print("shutting down...")
                 break
 
+            time.sleep(0.01)
+
 
 
    
@@ -153,13 +160,12 @@ class orchestrator:
 
     
     def text_input_loop(self):
-        user_input = ""
-        while not self.end_event.is_set():
-            user_input = ""
-            user_input = input("say something to REJI...\n")
-            self.process_turn_from_text(user_input)
-            if (user_input == "/bye"):
-                break
+        while True:
+            user_input = input("enter to exit\n")
+            if user_input:
+                self.end_event.set()
+
+
 
 
 
