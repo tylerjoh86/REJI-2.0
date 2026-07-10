@@ -6,7 +6,7 @@ class SeleroVADModule:
 
     def __init__(self):
         self.SAMPLE_RATE = 16000
-        self.speech_confidence_threshold = 0.5
+        self.speech_confidence_threshold = 0.7
 
         print("Loading Silero VAD...")
         self.vad_model = load_silero_vad()

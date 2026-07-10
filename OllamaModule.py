@@ -27,21 +27,26 @@ class OllamaModule:
         self.session = requests.Session()
         self.tts_queue = self.orchestrator.tts_queue
 
+        self.clear_history()
+
+        self.tts_buffer = ""
+
+    def clear_history(self):
         self.history = [
             {
                 "role": "system",
                 "content": (
                     "You are JARVIS, an AI voice assistant. Strictly talk in Text to speech compatible format. "
                     "You are loosely based off of Reginald Jeeves."
+                    "Do not creating long monologueing responses as they will likely tire the user"
                 )
             }
-        ]
-
-        self.tts_buffer = ""
+        ]   
 
     def run_tool(self, name: str, args: dict):
         if name == "end_chat":
-            self.orchestrator.end_event.set()
+            self.orchestrator.reset_event.set()
+            self.reset_history()
             return "succesful"
 
         raise ValueError(f"unknown fuction: {name}")
@@ -94,7 +99,7 @@ class OllamaModule:
             tool_calls_in_turn = []
 
             response = chat(
-                model='qwen3.6-27b-unlocked',
+                model='qwen3.5:9b',
                 messages=self.history,
                 tools=TOOLS,
                 stream=True,

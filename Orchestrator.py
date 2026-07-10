@@ -17,12 +17,13 @@ SILENCE_TIMEOUT = 1.2
 RESPONSE_WINDOW = 5.0
 
 class State(Enum):
-    LISTENING    = "LISTENING"
-    WAITING      = "WAITING"
-    RECORDING    = "RECORDING"
-    TRANSCRIBING = "TRANSCRIBING"
-    SPEAKING     = "SPEAKING"
-    SHUTTING_DOWN    = "SHUTTING_DOWN"
+    LISTENING     = "LISTENING"
+    WAITING       = "WAITING"
+    RECORDING     = "RECORDING"
+    TRANSCRIBING  = "TRANSCRIBING"
+    SPEAKING      = "SPEAKING"
+    SHUTTING_DOWN = "SHUTTING_DOWN"
+    RESETING      = "RESETING"
 
 class orchestrator:
     def __init__(self):
@@ -33,6 +34,7 @@ class orchestrator:
         #threading events
         self.end_event              = threading.Event()
         self.audio_finished_event   = threading.Event()
+        self.reset_event            = threading.Event()
 
         #modules
         self.tts           = PiperTTSModule.PiperTTSModule(self.audio_queue)
@@ -71,12 +73,20 @@ class orchestrator:
             if self.end_event.is_set():
                 self.state = State.SHUTTING_DOWN
 
-            if self.state == State.LISTENING:
+            if self.reset_event.is_set():
+                self.state = State.RESETING
+                self.reset_event.clear()
+
+            if self.audio_finished_event.is_set():
+                self.audio_finished_event.clear()
+                self.state = State.WAITING
+
+            elif self.state == State.LISTENING:
                 audioChunk = self.audioInput.raw_queue.get()
                 if self.ww_engine.is_wake_word(audioChunk):
                     self.state = State.WAITING
                     self.last_speech_time = time.time()
-                    print("state = waiting")
+                    print("listening -> waiting")
 
 
             elif self.state == State.WAITING:
@@ -84,11 +94,11 @@ class orchestrator:
                 if self.vad.is_speech(audioChunk):
                     self.state = State.RECORDING
                     self.audio_buffer.append(audioChunk)
-                    print("state = recording")
+                    print("waiting -> recording")
 
                 elif (time.time() - self.last_speech_time) > RESPONSE_WINDOW:
-                    self.state = State.SHUTTING_DOWN
-                    print("state = shutting down")
+                    self.state = State.RESETING
+                    print("waiting -> reseting")
 
 
             elif self.state == State.RECORDING:
@@ -98,7 +108,7 @@ class orchestrator:
                     self.last_speech_time = time.time()
                 elif (time.time() - self.last_speech_time) > SILENCE_TIMEOUT:
                     self.state = State.TRANSCRIBING
-                    print("state = transcribing")
+                    print("recording -> transcribing")
                     self.audioInput.pause()
                 
             
@@ -108,22 +118,20 @@ class orchestrator:
                 
                 if transcription is None:
                     print("orchestrator error, resetting")
-                    self.state = State.LISTENING
-                    self.last_speech_time = time.time()
-                    print("state = listening")
+                    self.state = State.RESETING
+                    print("transcribing -> listening")
                     print(f"Listening for wakeword {self.ww_engine.WAKE_WORD}...")
                 
                 elif transcription == "":
-                    self.state = State.WAITING
-                    self.last_speech_time = time.time()
-                    print("state = waiting")
+                    self.state = State.RESETING
+                    print("transcribing -> waiting")
                 else:
                     self.state = State.SPEAKING
                     self.last_speech_time = time.time()
-                    print("state = speaking")
+                    print("transcribing -> speaking")
                     
 
-            elif self.state is State.SPEAKING:
+            elif self.state == State.SPEAKING:
                 self.tts_queue.put(self.llm.process_response(transcription))
                 self.tts_queue.put(None)
                 self.audio_finished_event.wait()
@@ -132,9 +140,25 @@ class orchestrator:
                 self.last_speech_time = time.time()
                 self.audioInput.resume()
 
-            elif self.state is State.SHUTTING_DOWN:
+            elif self.state == State.SHUTTING_DOWN:
                 print("shutting down...")
                 break
+
+            elif self.state == State.RESETING:
+                print("reseting...")
+                self.llm.clear_history()
+                while not self.audioInput.raw_queue.empty():
+                    try:
+                        self.audioInput.raw_queue.get_nowait()
+                        self.audioInput.raw_queue.task_done()  
+                    except queue.Empty:
+                        break
+                self.ww_engine = WakeWordModule.WakeWordModule()
+                self.last_speech_time = None
+                self.audio_buffer = []
+                self.saved_chunk = None
+                self.state = State.LISTENING
+                print("reseting -> listening")
 
             time.sleep(0.01)
 
