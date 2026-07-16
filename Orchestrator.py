@@ -26,7 +26,6 @@ class orchestrator:
     def __init__(self, settings, tts, audioInput, llm, ww_engine, vad, stt):
         #queues
         self.tts_queue     = queue.Queue()
-        self.audio_queue   = queue.Queue()
         
         #threading events
         self.end_event              = threading.Event()
@@ -39,8 +38,8 @@ class orchestrator:
         self.RESPONSE_WINDOW = settings.orchestration.get('response_window')
 
         #modules
-        self.tts         = tts(self.settings, self.audio_queue)
-        self.audioInput  = audioInput(self.settings)
+        self.tts         = tts(self.settings)
+        self.audioInput  = audioInput(self.settings, self.audio_finished_event)
         self.llm         = llm(self.settings, self.tts_queue, self.end_event)
         self.ww_engine   = ww_engine(self.settings)
         self.vad         = vad(self.settings)
@@ -55,12 +54,10 @@ class orchestrator:
    
     def start(self):
         tts_t           = threading.Thread(target=self.tts_feeder, daemon=True)
-        output_t        = threading.Thread(target=self.speaker_loop, daemon=True)
         control_t       = threading.Thread(target=self.control_loop, daemon=False)
         input_t         = threading.Thread(target=self.text_input_loop, daemon=True)
 
-        tts_t.start()
-        output_t.start()      
+        tts_t.start()    
         self.audioInput.start()
         input_t.start()
         control_t.start()
@@ -167,30 +164,25 @@ class orchestrator:
     def text_input_loop(self):
         while True:
             user_input = input()
-            if (user_input == "stop"):
+            if (user_input == "end"):
                 self.end_event.set()
 
    
     def tts_feeder(self):
         while True:
             utterance = self.tts_queue.get()
-            self.tts.load_audio(utterance)
+            audio_chunk = self.tts.load_audio(utterance)
+            self.audioInput.add_to_queue(audio_chunk)
+
 
     
-    def speaker_loop(self):
-        with sd.OutputStream(samplerate=16000, channels=1, dtype='int16') as stream:
-            while True:
-                audio_chunk = self.audio_queue.get()
-                if not audio_chunk is None:
-                    stream.write(audio_chunk)
-                    self.audio_queue.task_done()
-                else:
-                    print("no audio chunks detected. returning to waiting mode")
-                    self.audio_finished_event.set()
-
-    
-    def text_input_loop(self):
-        while True:
-            user_input = input("enter to exit\n")
-            if user_input:
-                self.end_event.set()
+    # def speaker_loop(self):
+    #     with sd.OutputStream(samplerate=16000, channels=1, dtype='int16') as stream:
+    #         while True:
+    #             audio_chunk = self.audio_queue.get()
+    #             if not audio_chunk is None:
+    #                 stream.write(audio_chunk)
+    #                 self.audio_queue.task_done()
+    #             else:
+    #                 print("no audio chunks detected. returning to waiting mode")
+    #                 self.audio_finished_event.set()

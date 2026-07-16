@@ -19,7 +19,7 @@ ollama:
 
 orchestration:
   silence_timeout: 1.2
-  response_window: 5.0
+  response_window: 7.0
 
 vad:
   speech_confidence_threshold: 0.7

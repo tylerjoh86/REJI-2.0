@@ -7,7 +7,6 @@ class WakeWordModule:
 
     def __init__(self, settings):
         self.WAKE_WORD = settings.ww_engine.get('wake_word')
-        print(self.WAKE_WORD)
         self.WW_THRESHOLD = settings.ww_engine.get('ww_threshold')
 
         download_models([self.WAKE_WORD])
