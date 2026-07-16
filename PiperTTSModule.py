@@ -2,12 +2,10 @@ from piper.voice import PiperVoice
 import numpy as np
 
 class PiperTTSModule:
-    def __init__(self, audio_queue):
+    def __init__(self, settings, audio_queue):
         self.audio_queue = audio_queue
 
-        self.MODEL_PATH = "en_US-danny-low.onnx"
-        self.SAMPLE_RATE = 16000
-        self.CHANNELS = 1
+        self.MODEL_PATH = settings.tts.get('model_path')
 
         self.voice = PiperVoice.load(self.MODEL_PATH)
 

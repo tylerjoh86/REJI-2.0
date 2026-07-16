@@ -3,12 +3,12 @@ import sys
 import numpy as np
 
 
-WHISPER_MODEL_SIZE = "large-v3"    # Options: tiny, base, small, medium, large-v3
-USE_GPU = True                   # Set True if you have CUDA; faster-whisper will use it automatically if available
-
 class FasterWhisperModule:
 
-    def __init__(self):
+    def __init__(self, settings):
+        WHISPER_MODEL_SIZE = settings.stt.get('model_size')
+        USE_GPU = settings.stt.get('use_gpu')
+        
         print(f"Loading Faster-Whisper ({WHISPER_MODEL_SIZE})...")
         device = "cuda" if USE_GPU else "cpu"
         compute_type = "float16" if USE_GPU else "int8"

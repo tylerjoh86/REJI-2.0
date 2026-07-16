@@ -1,0 +1,25 @@
+audio:
+  sample_rate: 16000         # All components expect 16kHz
+  chunk_size: 512            # ~32 ms per chunk at 16kHz
+  channels: 1
+
+faster_whisper:
+  model_size: "large-v3"
+  use_gpu: true
+
+piper_tts:
+  model_path: "Voices/en_US-danny-low.onnx"
+
+open_wake_word:
+  wake_word: "hey_jarvis"
+  ww_threshold: 0.5
+
+ollama:
+  model: "qwen3.5:9b"
+
+orchestration:
+  silence_timeout: 1.2
+  response_window: 5.0
+
+vad:
+  speech_confidence_threshold: 0.7

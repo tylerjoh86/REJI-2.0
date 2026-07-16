@@ -1,31 +1,14 @@
 import numpy as np
 import sounddevice as sd
 import time 
-import sys
 import threading
-from openwakeword.model import Model
-from openwakeword.utils import download_models
-from silero_vad import load_silero_vad
-from faster_whisper import WhisperModel
-import torch
 import queue
 
-# ---------------- CONFIGURATION ----------------
-SAMPLE_RATE = 16000              # All components expect 16kHz
-CHUNK_SIZE = 512                 # ~32 ms per chunk at 16kHz
-WAKE_WORD = "hey_jarvis"           # Change to your wake word (e.g., "hey-mic", "computer")
-WW_THRESHOLD = 0.8               # Wake-word confidence threshold
-
-SILENCE_TIMEOUT = 1.2
-RESPONSE_WINDOW = 5.0            # Seconds of no speech before stopping recording
-WHISPER_MODEL_SIZE = "large-v3"    # Options: tiny, base, small, medium, large-v3
-USE_GPU = True                   # Set True if you have CUDA; faster-whisper will use it automatically if available
-# ------------------------------------------------
-
 class InputModule:
-    def __init__(self, orchestrator):
+    def __init__(self, settings):
+        self.sample_rate = settings.audio.get('sample_rate')
+        self.chunk_size = settings.audio.get('chunk_size')
 
-        self.orchestrator = orchestrator
 
         self.raw_queue = queue.Queue(maxsize=200)
 
@@ -47,13 +30,13 @@ class InputModule:
     
     def capture_loop(self):
         with sd.InputStream(
-            samplerate=SAMPLE_RATE,
+            samplerate=self.sample_rate,
             channels=1,
             dtype='float32',
-            blocksize=CHUNK_SIZE
+            blocksize=self.chunk_size
         ) as stream:
             while self.running:
-                chunk, _ = stream.read(CHUNK_SIZE)
+                chunk, _ = stream.read(self.chunk_size)
 
                 if self.is_paused.is_set():
                     continue

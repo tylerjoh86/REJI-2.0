@@ -2,7 +2,7 @@
 en_US-danny-low.onnx/
 en_US-danny-low.onnx.json/
 
-# Byte-compiled / optimized / DLL files
+# Byte-compiled / optimized / DLL filese
 __pycache__/
 *.py[codz]
 *$py.class

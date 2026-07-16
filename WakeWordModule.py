@@ -5,13 +5,18 @@ import numpy as np
 
 class WakeWordModule:
 
-    def __init__(self):
-        self.WAKE_WORD = "hey_jarvis"
-        self.WW_THRESHOLD = 0.5
+    def __init__(self, settings):
+        self.WAKE_WORD = settings.ww_engine.get('wake_word')
+        print(self.WAKE_WORD)
+        self.WW_THRESHOLD = settings.ww_engine.get('ww_threshold')
 
         download_models([self.WAKE_WORD])
         
         print("Loading OpenWakeWord...")
+        self.oww = Model(wakeword_models=[self.WAKE_WORD], inference_framework="onnx")
+
+
+    def reset(self):
         self.oww = Model(wakeword_models=[self.WAKE_WORD], inference_framework="onnx")
 
     def is_wake_word(self, chunk1d):

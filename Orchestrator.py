@@ -13,9 +13,6 @@ from enum import Enum
 import time
 from pynput import keyboard
 
-SILENCE_TIMEOUT = 1.2
-RESPONSE_WINDOW = 5.0
-
 class State(Enum):
     LISTENING     = "LISTENING"
     WAITING       = "WAITING"
@@ -26,7 +23,7 @@ class State(Enum):
     RESETING      = "RESETING"
 
 class orchestrator:
-    def __init__(self):
+    def __init__(self, settings, tts, audioInput, llm, ww_engine, vad, stt):
         #queues
         self.tts_queue     = queue.Queue()
         self.audio_queue   = queue.Queue()
@@ -36,13 +33,18 @@ class orchestrator:
         self.audio_finished_event   = threading.Event()
         self.reset_event            = threading.Event()
 
+        self.settings = settings
+
+        self.SILENCE_TIMEOUT = settings.orchestration.get('silence_timeout')
+        self.RESPONSE_WINDOW = settings.orchestration.get('response_window')
+
         #modules
-        self.tts           = PiperTTSModule.PiperTTSModule(self.audio_queue)
-        self.audioInput    = InputModule.InputModule(self)
-        self.llm           = OllamaModule.OllamaModule(self)
-        self.ww_engine     = WakeWordModule.WakeWordModule()
-        self.vad           = SeleroVADModule.SeleroVADModule()
-        self.stt           = FasterWhiperModule.FasterWhisperModule()
+        self.tts         = tts(self.settings, self.audio_queue)
+        self.audioInput  = audioInput(self.settings)
+        self.llm         = llm(self.settings, self.tts_queue, self.end_event)
+        self.ww_engine   = ww_engine(self.settings)
+        self.vad         = vad(self.settings)
+        self.stt         = stt(self.settings)
 
         self.state = State.LISTENING
         self.last_speech_time = None
@@ -55,14 +57,13 @@ class orchestrator:
         tts_t           = threading.Thread(target=self.tts_feeder, daemon=True)
         output_t        = threading.Thread(target=self.speaker_loop, daemon=True)
         control_t       = threading.Thread(target=self.control_loop, daemon=False)
-        #text_input_t   = threading.Thread(target=self.input_loop, daemon=False)
+        input_t         = threading.Thread(target=self.text_input_loop, daemon=True)
 
         tts_t.start()
         output_t.start()      
         self.audioInput.start()
+        input_t.start()
         control_t.start()
-
-        #text_input_t.start()
 
         print(f"Listening for wakeword {self.ww_engine.WAKE_WORD}...")
 
@@ -96,7 +97,7 @@ class orchestrator:
                     self.audio_buffer.append(audioChunk)
                     print("waiting -> recording")
 
-                elif (time.time() - self.last_speech_time) > RESPONSE_WINDOW:
+                elif (time.time() - self.last_speech_time) > self.RESPONSE_WINDOW:
                     self.state = State.RESETING
                     print("waiting -> reseting")
 
@@ -106,7 +107,7 @@ class orchestrator:
                 self.audio_buffer.append(audioChunk)
                 if self.vad.is_speech(audioChunk):
                     self.last_speech_time = time.time()
-                elif (time.time() - self.last_speech_time) > SILENCE_TIMEOUT:
+                elif (time.time() - self.last_speech_time) > self.SILENCE_TIMEOUT:
                     self.state = State.TRANSCRIBING
                     print("recording -> transcribing")
                     self.audioInput.pause()
@@ -153,7 +154,7 @@ class orchestrator:
                         self.audioInput.raw_queue.task_done()  
                     except queue.Empty:
                         break
-                self.ww_engine = WakeWordModule.WakeWordModule()
+                self.ww_engine.reset()
                 self.last_speech_time = None
                 self.audio_buffer = []
                 self.saved_chunk = None
@@ -163,6 +164,11 @@ class orchestrator:
             time.sleep(0.01)
 
 
+    def text_input_loop(self):
+        while True:
+            user_input = input()
+            if (user_input == "stop"):
+                self.end_event.set()
 
    
     def tts_feeder(self):
@@ -188,12 +194,3 @@ class orchestrator:
             user_input = input("enter to exit\n")
             if user_input:
                 self.end_event.set()
-
-
-
-
-
-if __name__ == "__main__":
-    print("starting...")
-    orchestrator = orchestrator()
-    orchestrator.start()

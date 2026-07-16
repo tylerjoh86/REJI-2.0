@@ -22,10 +22,12 @@ TOOLS = [
 class OllamaModule:
     
 
-    def __init__(self, orchestrator):
-        self.orchestrator = orchestrator
+    def __init__(self, settings, output_queue, end_event):
+        self.model = settings.llm.get('model')
+        
         self.session = requests.Session()
-        self.tts_queue = self.orchestrator.tts_queue
+        self.tts_queue = output_queue
+        self.end_event = end_event
 
         self.clear_history()
 
@@ -45,8 +47,7 @@ class OllamaModule:
 
     def run_tool(self, name: str, args: dict):
         if name == "end_chat":
-            self.orchestrator.reset_event.set()
-            self.reset_history()
+            self.end_event.set()
             return "succesful"
 
         raise ValueError(f"unknown fuction: {name}")
